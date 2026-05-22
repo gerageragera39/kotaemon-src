@@ -64,7 +64,7 @@ class DecomposeQuestionPipeline(RewriteQuestionPipeline):
 
     def run(self, question: str) -> list:  # type: ignore
         messages, llm_kwargs = self.create_prompt(question)
-        result = self.llm(messages, **llm_kwargs)
+        result = self.llm.run(messages, **llm_kwargs)
         tool_calls = result.additional_kwargs.get("tool_calls", None)
         sub_queries = []
         if tool_calls:

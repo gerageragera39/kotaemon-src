@@ -214,7 +214,9 @@ class AnswerWithInlineCitation(AnswerWithContextPipeline):
 
         def mindmap_call():
             nonlocal mindmap
-            mindmap = self.create_mindmap_pipeline(context=evidence, question=question)
+            mindmap = self.create_mindmap_pipeline.run(
+                context=evidence, question=question
+            )
 
         mindmap_thread = None
 
@@ -286,7 +288,7 @@ class AnswerWithInlineCitation(AnswerWithContextPipeline):
                 logprobs += out_msg.logprobs
         except NotImplementedError:
             print("Streaming is not supported, falling back to normal processing")
-            output = self.llm(messages).text
+            output = self.llm.run(messages).text
             yield Document(channel="chat", content=output)
 
         if logprobs:

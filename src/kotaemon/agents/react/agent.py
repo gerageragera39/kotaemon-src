@@ -163,9 +163,9 @@ class ReactAgent(BaseAgent):
             )
         )
         if isinstance(text, str):
-            texts = evidence_trim_func([Document(text=text)])
+            texts = evidence_trim_func.run([Document(text=text)])
         elif isinstance(text, Document):
-            texts = evidence_trim_func([text])
+            texts = evidence_trim_func.run([text])
         else:
             raise ValueError("Invalid text type to trim")
         trim_text = texts[0].text
@@ -204,7 +204,7 @@ class ReactAgent(BaseAgent):
         for step_count in range(1, max_iterations + 1):
             prompt = self._compose_prompt(instruction)
             logging.info(f"Prompt: {prompt}")
-            response = self.llm(
+            response = self.llm.run(
                 prompt, stop=["Observation:"]
             )  # could cause bugs if llm doesn't have `stop` as a parameter
             response_text = response.text
@@ -229,7 +229,7 @@ class ReactAgent(BaseAgent):
                         f"Available tools: {available}"
                     )
                 else:
-                    result = function_map[action_name](tool_input)
+                    result = function_map[action_name].run(tool_input)
 
                 # trim the worker output to 1000 tokens, as we are appending
                 # all workers' logs and it can exceed the token limit if we
@@ -283,7 +283,7 @@ class ReactAgent(BaseAgent):
             prompt = self._compose_prompt(instruction)
             logging.info(f"Prompt: {prompt}")
             print(f"Prompt: {prompt}")
-            response = self.llm(
+            response = self.llm.run(
                 prompt, stop=["Observation:"]
             )  # TODO: could cause bugs if llm doesn't have `stop` as a parameter
             response_text = response.text
@@ -313,7 +313,7 @@ class ReactAgent(BaseAgent):
                         f"Available tools: {available}"
                     )
                 else:
-                    result = function_map[action_name](tool_input)
+                    result = function_map[action_name].run(tool_input)
 
                 # trim the worker output to 1000 tokens, as we are appending
                 # all workers' logs and it can exceed the token limit if we

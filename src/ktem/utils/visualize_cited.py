@@ -111,12 +111,12 @@ class CreateCitationVizPipeline(BaseComponent):
         return fig
 
     def run(self, context: List[str], question: str):
-        embed_contexts = self.embedding(context)
+        embed_contexts = self.embedding.run(context)
         context_embeddings = np.array([d.embedding for d in embed_contexts])
 
         self.projector = self._set_up_umap(embeddings=context_embeddings)
 
-        embed_query = self.embedding(question)
+        embed_query = self.embedding.run(question)
         query_projection = self._get_projections(
             embeddings=[embed_query[0].embedding], umap_transform=self.projector
         )

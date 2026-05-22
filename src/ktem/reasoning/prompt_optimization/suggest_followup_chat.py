@@ -40,4 +40,4 @@ class SuggestFollowupQuesPipeline(BaseComponent):
 
         messages.append(HumanMessage(content=prompt))
 
-        return self.llm(messages)
+        return self.llm.run(messages)

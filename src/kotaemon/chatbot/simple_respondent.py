@@ -8,4 +8,4 @@ class SimpleRespondentChatbot(BaseChatBot):
     llm: ChatLLM
 
     def _get_message(self) -> str:
-        return self.llm(self.history).text
+        return self.llm.run(self.history).text

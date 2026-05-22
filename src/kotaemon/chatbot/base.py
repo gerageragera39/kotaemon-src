@@ -53,7 +53,7 @@ class ChatConversation(SessionFunction):
         )
         self.history.append(user_message)
 
-        output = self.bot(self.history).text
+        output = self.bot.run(self.history).text
         output_message = None
         if output is not None:
             output_message = AIMessage(content=output)

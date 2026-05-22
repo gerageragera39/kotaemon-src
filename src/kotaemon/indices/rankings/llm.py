@@ -42,7 +42,7 @@ class LLMReranking(BaseReranking):
                     _prompt = self.prompt_template.populate(
                         question=query, context=doc.get_content()
                     )
-                    futures.append(executor.submit(lambda: self.llm(_prompt).text))
+                    futures.append(executor.submit(lambda: self.llm.run(_prompt).text))
 
                 results = [future.result() for future in futures]
         else:
@@ -51,7 +51,7 @@ class LLMReranking(BaseReranking):
                 _prompt = self.prompt_template.populate(
                     question=query, context=doc.get_content()
                 )
-                results.append(self.llm(_prompt).text)
+                results.append(self.llm.run(_prompt).text)
 
         # use Boolean parser to extract relevancy output from LLM
         results = [output_parser.parse(result) for result in results]

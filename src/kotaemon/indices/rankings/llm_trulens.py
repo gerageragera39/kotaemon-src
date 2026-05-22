@@ -123,7 +123,7 @@ class LLMTrulensScoring(LLMReranking):
             with ThreadPoolExecutor() as executor:
                 futures = []
                 for doc in documents:
-                    chunked_doc_content = self.trim_func(
+                    chunked_doc_content = self.trim_func.run(
                         [
                             Document(content=doc.get_content())
                             # skip metadata which cause troubles
@@ -143,7 +143,7 @@ class LLMTrulensScoring(LLMReranking):
                     )
 
                     def llm_call():
-                        return self.llm(messages).text
+                        return self.llm.run(messages).text
 
                     futures.append(executor.submit(llm_call))
 
@@ -160,7 +160,7 @@ class LLMTrulensScoring(LLMReranking):
                         )
                     )
                 )
-                results.append(self.llm(messages).text)
+                results.append(self.llm.run(messages).text)
 
         # use Boolean parser to extract relevancy output from LLM
         results = [

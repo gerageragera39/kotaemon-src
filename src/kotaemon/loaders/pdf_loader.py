@@ -1,4 +1,6 @@
 import base64
+import logging
+import time
 from io import BytesIO
 from pathlib import Path
 from typing import Dict, List, Optional
@@ -11,11 +13,19 @@ from PIL import Image
 from kotaemon.base import Document
 
 PDF_LOADER_DPI = config("PDF_LOADER_DPI", default=40, cast=int)
+logger = logging.getLogger(__name__)
+
+
+def _pdf_log(message: str, level: int = logging.INFO) -> None:
+    """Log PDF loading progress to logger and terminal."""
+
+    logger.log(level, message)
+    print(f"[pdf-loader] {message}", flush=True)
 
 
 def get_page_thumbnails(
     file_path: Path, pages: list[int], dpi: int = PDF_LOADER_DPI
-) -> List[Image.Image]:
+) -> List[str]:
     """Get image thumbnails of the pages in the PDF file.
 
     Args:
@@ -23,7 +33,7 @@ def get_page_thumbnails(
         page_number (list[int]): list of page numbers to extract
 
     Returns:
-        list[Image.Image]: list of page thumbnails
+        list[str]: list of page thumbnails encoded as base64 data URLs
     """
 
     img: Image.Image
@@ -34,14 +44,29 @@ def get_page_thumbnails(
     except ImportError:
         raise ImportError("Please install PyMuPDF: 'pip install PyMuPDF'")
 
-    doc = fitz.open(file_path)
-
+    _pdf_log(
+        f"{file_path.name}: rendering {len(pages)} page thumbnails at {dpi} DPI"
+    )
+    start_time = time.time()
     output_imgs = []
-    for page_number in pages:
-        page = doc.load_page(page_number)
-        pm = page.get_pixmap(dpi=dpi)
-        img = Image.frombytes("RGB", [pm.width, pm.height], pm.samples)
-        output_imgs.append(convert_image_to_base64(img))
+    doc = fitz.open(file_path)
+    try:
+        for idx, page_number in enumerate(pages, start=1):
+            page = doc.load_page(page_number)
+            pm = page.get_pixmap(dpi=dpi)
+            img = Image.frombytes("RGB", [pm.width, pm.height], pm.samples)
+            output_imgs.append(convert_image_to_base64(img))
+            _pdf_log(
+                f"{file_path.name}: rendered thumbnail {idx}/{len(pages)} "
+                f"(page_index={page_number})"
+            )
+    finally:
+        doc.close()
+
+    _pdf_log(
+        f"{file_path.name}: rendered {len(output_imgs)} thumbnails "
+        f"in {time.time() - start_time:.2f}s"
+    )
 
     return output_imgs
 
@@ -72,7 +97,13 @@ class PDFThumbnailReader(PDFReader):
         fs: Optional[AbstractFileSystem] = None,
     ) -> List[Document]:
         """Parse file."""
+        start_time = time.time()
+        _pdf_log(f"{file.name}: text extraction started")
         documents = super().load_data(file, extra_info, fs)
+        _pdf_log(
+            f"{file.name}: text extraction produced {len(documents)} raw documents "
+            f"in {time.time() - start_time:.2f}s"
+        )
 
         page_numbers_str = []
         filtered_docs = []
@@ -91,9 +122,14 @@ class PDFThumbnailReader(PDFReader):
                     continue
 
         documents = filtered_docs
+        text_page_count = len(documents)
         page_numbers = list(range(len(page_numbers_str)))
 
-        print("Page numbers:", len(page_numbers))
+        _pdf_log(
+            f"{file.name}: page labels found={len(page_numbers_str)}, "
+            f"usable_text_pages={len(documents)}"
+        )
+        print("Page numbers:", len(page_numbers), flush=True)
         page_thumbnails = get_page_thumbnails(file, page_numbers)
 
         documents.extend(
@@ -114,4 +150,8 @@ class PDFThumbnailReader(PDFReader):
             ]
         )
 
+        _pdf_log(
+            f"{file.name}: returning {len(documents)} documents "
+            f"(text_pages={text_page_count}, thumbnails={len(page_thumbnails)})"
+        )
         return documents

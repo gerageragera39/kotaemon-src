@@ -90,7 +90,7 @@ class Thought(BaseComponent):
     def run(self, **kwargs) -> Document:
         """Run the chain of thought"""
         prompt = self.prompt_template(**kwargs).text
-        response = self.llm(prompt).text
+        response = self.llm.run(prompt).text
         response = self.post_process(response)
 
         return Document(response)
@@ -162,7 +162,7 @@ class ManualSequentialChainOfThought(BaseComponent):
                 thought.llm = self.llm
             self._prepare_child(thought, f"thought{idx}")
 
-            output = thought(**inputs)
+            output = thought.run(**inputs)
             inputs.update(output.content)
             if self.terminate(inputs):
                 break

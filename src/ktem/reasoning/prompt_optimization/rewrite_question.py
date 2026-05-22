@@ -35,4 +35,4 @@ class RewriteQuestionPipeline(BaseComponent):
             SystemMessage(content="You are a helpful assistant"),
             HumanMessage(content=prompt),
         ]
-        return self.llm(messages)
+        return self.llm.run(messages)

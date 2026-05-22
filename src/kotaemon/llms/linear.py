@@ -69,9 +69,14 @@ class SimpleLinearPipeline(BaseComponent):
             Document: The final output of the function as a Document object.
         """
         prompt = self.prompt(**prompt_kwargs)
-        llm_output = self.llm(prompt.text, **llm_kwargs)
+        llm_output = self.llm.run(prompt.text, **llm_kwargs)
         if self.post_processor is not None:
-            final_output = self.post_processor(llm_output, **post_processor_kwargs)[0]
+            if isinstance(self.post_processor, BaseComponent):
+                final_output = self.post_processor.run(
+                    llm_output, **post_processor_kwargs
+                )[0]
+            else:
+                final_output = self.post_processor(llm_output, **post_processor_kwargs)
         else:
             final_output = llm_output
 
@@ -145,7 +150,12 @@ class GatedLinearPipeline(SimpleLinearPipeline):
         if condition_text is None:
             raise ValueError("`condition_text` must be provided")
 
-        if self.condition(condition_text)[0]:
+        if isinstance(self.condition, BaseComponent):
+            condition_result = self.condition.run(condition_text)
+        else:
+            condition_result = self.condition(condition_text)
+
+        if condition_result[0]:
             return super().run(
                 llm_kwargs=llm_kwargs,
                 post_processor_kwargs=post_processor_kwargs,

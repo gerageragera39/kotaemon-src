@@ -28,7 +28,7 @@ class LLMTool(BaseTool):
         output = None
         try:
             if not self.dummy_mode:
-                response = self.llm(query)
+                response = self.llm.run(query)
             else:
                 response = None
         except ValueError:

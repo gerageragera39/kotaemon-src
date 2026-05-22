@@ -132,7 +132,7 @@ class ComponentTool(BaseTool):
     postprocessor: Optional[Callable] = None
 
     def _run_tool(self, *args: Any, **kwargs: Any) -> Any:
-        output = self.component(*args, **kwargs)
+        output = self.component.run(*args, **kwargs)
         if self.postprocessor:
             output = self.postprocessor(output)
 

@@ -52,6 +52,18 @@ from .base import BaseFileIndexIndexing, BaseFileIndexRetriever
 logger = logging.getLogger(__name__)
 
 
+def _index_log(message: str, level: int = logging.INFO) -> None:
+    """Log indexing progress to both the Python logger and the console.
+
+    The app is commonly run from a terminal on Windows, so an explicit flushed
+    print makes long PDF indexing stages visible even when logging is not
+    configured by the launcher.
+    """
+
+    logger.log(level, message)
+    print(f"[file-index] {message}", flush=True)
+
+
 @lru_cache
 def dev_settings():
     """Retrieve the developer settings from flowsettings.py"""
@@ -136,7 +148,7 @@ class DocumentRetrievalPipeline(BaseFileIndexRetriever):
                     flatten_doc_ids.append(doc_id)
             doc_ids = flatten_doc_ids
 
-        print("searching in doc_ids", doc_ids)
+        _index_log(f"Searching in doc_ids={doc_ids}")
         if not doc_ids:
             logger.info(f"Skip retrieval because of no selected files: {self}")
             return []
@@ -171,9 +183,11 @@ class DocumentRetrievalPipeline(BaseFileIndexRetriever):
 
         # rerank
         s_time = time.time()
-        print(f"retrieval_kwargs: {retrieval_kwargs.keys()}")
-        docs = self.vector_retrieval(text=text, top_k=self.top_k, **retrieval_kwargs)
-        print("retrieval step took", time.time() - s_time)
+        _index_log(f"Retrieval kwargs: {retrieval_kwargs.keys()}")
+        docs = self.vector_retrieval.run(
+            text=text, top_k=self.top_k, **retrieval_kwargs
+        )
+        _index_log(f"Retrieval step took {time.time() - s_time:.2f}s")
 
         if not self.get_extra_table:
             return docs
@@ -197,7 +211,7 @@ class DocumentRetrievalPipeline(BaseFileIndexRetriever):
         ]
         if queries:
             try:
-                extra_docs = self.vector_retrieval(
+                extra_docs = self.vector_retrieval.run(
                     text="",
                     top_k=50,
                     where=queries[0] if len(queries) == 1 else {"$or": queries},
@@ -216,7 +230,7 @@ class DocumentRetrievalPipeline(BaseFileIndexRetriever):
         docs = (
             documents
             if not self.llm_scorer
-            else self.llm_scorer(documents=documents, query=query)
+            else self.llm_scorer.run(documents=documents, query=query)
         )
         return docs
 
@@ -351,6 +365,7 @@ class IndexPipeline(BaseComponent):
 
     def handle_docs(self, docs, file_id, file_name) -> Generator[Document, None, int]:
         s_time = time.time()
+        _index_log(f"[{file_name}] Preparing loaded documents for chunking")
         text_docs = []
         non_text_docs = []
         thumbnail_docs = []
@@ -364,23 +379,58 @@ class IndexPipeline(BaseComponent):
             else:
                 non_text_docs.append(doc)
 
-        print(f"Got {len(thumbnail_docs)} page thumbnails")
+        text_chars = sum(len(doc.text or "") for doc in text_docs)
+        _index_log(
+            f"[{file_name}] Loaded docs: text={len(text_docs)}, "
+            f"non_text={len(non_text_docs)}, thumbnails={len(thumbnail_docs)}, "
+            f"text_chars={text_chars}"
+        )
+        _index_log(f"[{file_name}] Got {len(thumbnail_docs)} page thumbnails")
         page_label_to_thumbnail = {
             doc.metadata["page_label"]: doc.doc_id for doc in thumbnail_docs
         }
 
         if self.splitter:
-            all_chunks = self.splitter(text_docs)
+            splitter_start = time.time()
+            _index_log(f"[{file_name}] Chunking started with splitter={self.splitter}")
+            yield Document(
+                f" => [{file_name}] Chunking {len(text_docs)} text documents",
+                channel="debug",
+            )
+
+            # Use the splitter implementation directly instead of the inherited
+            # theflow Function.__call__ wrapper. The wrapper adds diskcache-based
+            # result caching and can block forever on a stale/inter-process cache
+            # lock during uploads before TokenTextSplitter is reached. Calling
+            # run() keeps the same splitter algorithm and avoids caching transient
+            # document objects.
+            all_chunks = self.splitter.run(text_docs)
+
+            _index_log(
+                f"[{file_name}] Chunking finished: chunks={len(all_chunks)} "
+                f"in {time.time() - splitter_start:.2f}s"
+            )
+            yield Document(
+                f" => [{file_name}] Created {len(all_chunks)} text chunks",
+                channel="debug",
+            )
         else:
+            _index_log(f"[{file_name}] No splitter configured; using text docs as chunks")
             all_chunks = text_docs
 
         # add the thumbnails doc_id to the chunks
+        _index_log(f"[{file_name}] Linking chunks to page thumbnails")
         for chunk in all_chunks:
             page_label = chunk.metadata.get("page_label", None)
             if page_label and page_label in page_label_to_thumbnail:
                 chunk.metadata["thumbnail_doc_id"] = page_label_to_thumbnail[page_label]
 
         to_index_chunks = all_chunks + non_text_docs + thumbnail_docs
+        _index_log(
+            f"[{file_name}] Total records to index: text_chunks={len(all_chunks)}, "
+            f"non_text={len(non_text_docs)}, thumbnails={len(thumbnail_docs)}, "
+            f"total={len(to_index_chunks)}"
+        )
 
         # add to doc store
         chunks = []
@@ -388,6 +438,10 @@ class IndexPipeline(BaseComponent):
         chunk_size = self.chunk_batch_size * 4
         for start_idx in range(0, len(to_index_chunks), chunk_size):
             chunks = to_index_chunks[start_idx : start_idx + chunk_size]
+            _index_log(
+                f"[{file_name}] Writing docstore batch "
+                f"{start_idx // chunk_size + 1}: size={len(chunks)}"
+            )
             self.handle_chunks_docstore(chunks, file_id)
             n_chunks += len(chunks)
             yield Document(
@@ -401,6 +455,10 @@ class IndexPipeline(BaseComponent):
             chunk_size = self.chunk_batch_size
             for start_idx in range(0, len(to_index_chunks), chunk_size):
                 chunks = to_index_chunks[start_idx : start_idx + chunk_size]
+                _index_log(
+                    f"[{file_name}] Writing vectorstore batch "
+                    f"{start_idx // chunk_size + 1}: size={len(chunks)}"
+                )
                 self.handle_chunks_vectorstore(chunks, file_id)
                 n_chunks += len(chunks)
                 if self.VS:
@@ -411,14 +469,14 @@ class IndexPipeline(BaseComponent):
 
         # run vector indexing in thread if specified
         if self.run_embedding_in_thread:
-            print("Running embedding in thread")
+            _index_log(f"[{file_name}] Running embedding in background thread")
             threading.Thread(
                 target=lambda: list(insert_chunks_to_vectorstore())
             ).start()
         else:
             yield from insert_chunks_to_vectorstore()
 
-        print("indexing step took", time.time() - s_time)
+        _index_log(f"[{file_name}] Indexing step took {time.time() - s_time:.2f}s")
         return n_chunks
 
     def handle_chunks_docstore(self, chunks, file_id):
@@ -643,13 +701,16 @@ class IndexPipeline(BaseComponent):
         extra_info["file_id"] = file_id
         extra_info["collection_name"] = self.collection_name
 
+        _index_log(f"[{file_name}] Converting to text")
         yield Document(f" => Converting {file_name} to text", channel="debug")
         docs = self.loader.load_data(file_path, extra_info=extra_info)
+        _index_log(f"[{file_name}] Converted to text: docs={len(docs)}")
         yield Document(f" => Converted {file_name} to text", channel="debug")
         yield from self.handle_docs(docs, file_id, file_name)
 
         self.finish(file_id, file_path)
 
+        _index_log(f"[{file_name}] Finished indexing")
         yield Document(f" => Finished indexing {file_name}", channel="debug")
         return file_id, docs
 
@@ -749,9 +810,10 @@ class IndexDocumentPipeline(BaseFileIndexIndexing):
                     "the suitable pipeline for this file type in the settings."
                 )
 
-        print(f"Chunk size: {chunk_size}, chunk overlap: {chunk_overlap}")
-
-        print("Using reader", reader)
+        _index_log(
+            f"[{file_path}] Route selected reader={reader}, "
+            f"chunk_size={chunk_size or 1024}, chunk_overlap={chunk_overlap or 256}"
+        )
         pipeline: IndexPipeline = IndexPipeline(
             loader=reader,
             splitter=TokenSplitter(

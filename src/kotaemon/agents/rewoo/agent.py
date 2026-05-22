@@ -181,7 +181,7 @@ class RewooAgent(BaseAgent):
                 selected_plugin = self._find_plugin(tool)
                 if selected_plugin is None:
                     raise ValueError("Invalid plugin detected")
-                tool_response = selected_plugin(tool_input)
+                tool_response = selected_plugin.run(tool_input)
                 result["evidence"] = get_plugin_response_content(tool_response)
             except ValueError:
                 result["evidence"] = "No evidence found."
@@ -258,7 +258,7 @@ class RewooAgent(BaseAgent):
             )
         )
         if evidence:
-            texts = evidence_trim_func([Document(text=evidence)])
+            texts = evidence_trim_func.run([Document(text=evidence)])
             evidence = texts[0].text
             logging.info(f"len (trimmed): {len(evidence)}")
             return evidence
@@ -273,7 +273,7 @@ class RewooAgent(BaseAgent):
         total_token = 0
 
         # Plan
-        planner_output = self.planner(instruction)
+        planner_output = self.planner.run(instruction)
         planner_text_output = planner_output.text
         plan_to_es, plans = self._parse_plan_map(planner_text_output)
         planner_evidences, evidence_level = self._parse_planner_evidences(
@@ -291,11 +291,11 @@ class RewooAgent(BaseAgent):
                 worker_log += f"{e}: {worker_evidences[e]}\n"
 
         # Solve
-        solver_output = self.solver(instruction, worker_log)
+        solver_output = self.solver.run(instruction, worker_log)
         solver_output_text = solver_output.text
         if use_citation:
             citation_pipeline = CitationPipeline(llm=self.solver_llm)
-            citation = citation_pipeline(context=worker_log, question=instruction)
+            citation = citation_pipeline.run(context=worker_log, question=instruction)
         else:
             citation = None
 
@@ -318,7 +318,7 @@ class RewooAgent(BaseAgent):
         total_token = 0
 
         # Plan
-        planner_output = self.planner(instruction)
+        planner_output = self.planner.run(instruction)
         planner_text_output = planner_output.text
         plan_to_es, plans = self._parse_plan_map(planner_text_output)
         planner_evidences, evidence_level = self._parse_planner_evidences(

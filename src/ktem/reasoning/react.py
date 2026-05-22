@@ -48,7 +48,7 @@ class DocSearchTool(BaseTool):
         docs = []
         doc_ids = []
         for retriever in self.retrievers:
-            for doc in retriever(text=query):
+            for doc in retriever.run(text=query):
                 if doc.doc_id not in doc_ids:
                     docs.append(doc)
                     doc_ids.append(doc.doc_id)
@@ -175,7 +175,7 @@ class RewriteQuestionPipeline(BaseComponent):
             SystemMessage(content="You are a helpful assistant"),
             HumanMessage(content=prompt),
         ]
-        return self.llm(messages)
+        return self.llm.run(messages)
 
 
 class ReactAgentPipeline(BaseReasoning):
@@ -213,10 +213,10 @@ class ReactAgentPipeline(BaseReasoning):
         self, message, conv_id: str, history: list, **kwargs  # type: ignore
     ) -> Document:
         if self.use_rewrite:
-            rewrite = await self.rewrite_pipeline(question=message)
+            rewrite = self.rewrite_pipeline.run(question=message)
             message = rewrite.text
 
-        answer = self.agent(message)
+        answer = self.agent.run(message)
         self.report_output(Document(content=answer.text, channel="chat"))
 
         intermediate_steps = answer.intermediate_steps
@@ -228,7 +228,7 @@ class ReactAgentPipeline(BaseReasoning):
 
     def stream(self, message, conv_id: str, history: list, **kwargs):
         if self.use_rewrite:
-            rewrite = self.rewrite_pipeline(question=message)
+            rewrite = self.rewrite_pipeline.run(question=message)
             message = rewrite.text
             yield Document(
                 channel="info",

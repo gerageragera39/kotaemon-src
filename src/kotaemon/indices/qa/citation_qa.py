@@ -209,11 +209,13 @@ class AnswerWithContextPipeline(BaseComponent):
 
         def citation_call():
             nonlocal citation
-            citation = self.citation_pipeline(context=evidence, question=question)
+            citation = self.citation_pipeline.run(context=evidence, question=question)
 
         def mindmap_call():
             nonlocal mindmap
-            mindmap = self.create_mindmap_pipeline(context=evidence, question=question)
+            mindmap = self.create_mindmap_pipeline.run(
+                context=evidence, question=question
+            )
 
         citation_thread = None
         mindmap_thread = None
@@ -268,7 +270,7 @@ class AnswerWithContextPipeline(BaseComponent):
                 yield Document(channel="chat", content=out_msg.text)
         except NotImplementedError:
             print("Streaming is not supported, falling back to normal processing")
-            output = self.llm(messages).text
+            output = self.llm.run(messages).text
             yield Document(channel="chat", content=output)
 
         if logprobs:

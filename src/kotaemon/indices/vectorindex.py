@@ -1,6 +1,8 @@
 from __future__ import annotations
 
+import logging
 import threading
+import time
 import uuid
 from pathlib import Path
 from typing import Optional, Sequence, cast
@@ -16,6 +18,14 @@ from .rankings import BaseReranking, LLMReranking
 
 VECTOR_STORE_FNAME = "vectorstore"
 DOC_STORE_FNAME = "docstore"
+logger = logging.getLogger(__name__)
+
+
+def _vector_log(message: str, level: int = logging.INFO) -> None:
+    """Log vector indexing/retrieval progress to logger and terminal."""
+
+    logger.log(level, message)
+    print(f"[vector-index] {message}", flush=True)
 
 
 class VectorIndexing(BaseIndexing):
@@ -78,19 +88,35 @@ class VectorIndexing(BaseIndexing):
 
     def add_to_docstore(self, docs: list[Document]):
         if self.doc_store:
-            print("Adding documents to doc store")
+            _vector_log(f"Adding {len(docs)} documents to doc store")
             self.doc_store.add(docs)
+            _vector_log(f"Added {len(docs)} documents to doc store")
 
     def add_to_vectorstore(self, docs: list[Document]):
         # in case we want to skip embedding
         if self.vector_store:
-            print(f"Getting embeddings for {len(docs)} nodes")
-            embeddings = self.embedding(docs)
-            print("Adding embeddings to vector store")
+            start_time = time.time()
+            _vector_log(
+                f"Getting embeddings for {len(docs)} nodes with {self.embedding}"
+            )
+
+            # Call the embedding implementation directly instead of the inherited
+            # theflow Function.__call__ wrapper. The wrapper adds diskcache-based
+            # result caching and can block on stale/inter-process cache locks for
+            # large transient document batches. run() preserves the embedding
+            # algorithm/configuration and avoids caching upload-time payloads.
+            embeddings = self.embedding.run(docs)
+
+            _vector_log(
+                f"Created {len(embeddings)} embeddings "
+                f"in {time.time() - start_time:.2f}s"
+            )
+            _vector_log("Adding embeddings to vector store")
             self.vector_store.add(
                 embeddings=embeddings,
                 ids=[t.doc_id for t in docs],
             )
+            _vector_log(f"Added {len(embeddings)} embeddings to vector store")
 
     def run(self, text: str | list[str] | Document | list[Document]):
         input_: list[Document] = []
@@ -165,8 +191,16 @@ class VectorRetrieval(BaseRetrieval):
         scope = kwargs.pop("scope", None)
         emb: list[float]
 
+        _vector_log(
+            f"Retrieval started: mode={self.retrieval_mode}, top_k={top_k}, "
+            f"first_round_top_k={top_k_first_round}, scope={len(scope) if scope else 0}"
+        )
+
         if self.retrieval_mode == "vector":
-            emb = self.embedding(text)[0].embedding
+            start_time = time.time()
+            _vector_log("Getting query embedding")
+            emb = self.embedding.run(text)[0].embedding
+            _vector_log(f"Query embedding ready in {time.time() - start_time:.2f}s")
             _, scores, ids = self.vector_store.query(
                 embedding=emb, top_k=top_k_first_round, doc_ids=scope, **kwargs
             )
@@ -185,7 +219,10 @@ class VectorRetrieval(BaseRetrieval):
             result = [RetrievedDocument(**doc.to_dict(), score=-1.0) for doc in docs]
         elif self.retrieval_mode == "hybrid":
             # similarity search section
-            emb = self.embedding(text)[0].embedding
+            start_time = time.time()
+            _vector_log("Getting query embedding")
+            emb = self.embedding.run(text)[0].embedding
+            _vector_log(f"Query embedding ready in {time.time() - start_time:.2f}s")
             vs_docs: list[RetrievedDocument] = []
             vs_ids: list[str] = []
             vs_scores: list[float] = []
@@ -218,11 +255,17 @@ class VectorRetrieval(BaseRetrieval):
             vs_query_thread = threading.Thread(target=query_vectorstore)
             ds_query_thread = threading.Thread(target=query_docstore)
 
+            _vector_log("Starting hybrid vector/docstore queries")
+            query_start = time.time()
             vs_query_thread.start()
             ds_query_thread.start()
 
             vs_query_thread.join()
             ds_query_thread.join()
+            _vector_log(
+                f"Hybrid vector/docstore queries finished "
+                f"in {time.time() - query_start:.2f}s"
+            )
 
             result = [
                 RetrievedDocument(**doc.to_dict(), score=-1.0)
@@ -233,8 +276,8 @@ class VectorRetrieval(BaseRetrieval):
                 RetrievedDocument(**doc.to_dict(), score=score)
                 for doc, score in zip(vs_docs, vs_scores)
             ]
-            print(f"Got {len(vs_docs)} from vectorstore")
-            print(f"Got {len(ds_docs)} from docstore")
+            _vector_log(f"Got {len(vs_docs)} from vectorstore")
+            _vector_log(f"Got {len(ds_docs)} from docstore")
 
         # use additional reranker to re-order the document list
         if self.rerankers and text:
@@ -242,10 +285,16 @@ class VectorRetrieval(BaseRetrieval):
                 # if reranker is LLMReranking, limit the document with top_k items only
                 if isinstance(reranker, LLMReranking):
                     result = self._filter_docs(result, top_k=top_k)
+                rerank_start = time.time()
+                _vector_log(f"Running reranker {reranker}")
                 result = reranker.run(documents=result, query=text)
+                _vector_log(
+                    f"Reranker returned {len(result)} docs "
+                    f"in {time.time() - rerank_start:.2f}s"
+                )
 
         result = self._filter_docs(result, top_k=top_k)
-        print(f"Got raw {len(result)} retrieved documents")
+        _vector_log(f"Got raw {len(result)} retrieved documents")
 
         # add page thumbnails to the result if exists
         thumbnail_doc_ids: set[str] = set()
@@ -272,13 +321,10 @@ class VectorRetrieval(BaseRetrieval):
                 non_thumbnail_docs.append(doc)
 
         linked_thumbnail_docs = self.doc_store.get(list(thumbnail_doc_ids))
-        print(
-            "thumbnail docs",
-            len(linked_thumbnail_docs),
-            "non-thumbnail docs",
-            len(non_thumbnail_docs),
-            "raw-thumbnail docs",
-            len(raw_thumbnail_docs),
+        _vector_log(
+            f"thumbnail docs {len(linked_thumbnail_docs)}; "
+            f"non-thumbnail docs {len(non_thumbnail_docs)}; "
+            f"raw-thumbnail docs {len(raw_thumbnail_docs)}"
         )
         additional_docs = []
 
@@ -308,5 +354,5 @@ class TextVectorQA(BaseComponent):
     qa_pipeline: BaseComponent
 
     def run(self, question, **kwargs):
-        retrieved_documents = self.retrieving_pipeline(question, **kwargs)
-        return self.qa_pipeline(question, retrieved_documents, **kwargs)
+        retrieved_documents = self.retrieving_pipeline.run(question, **kwargs)
+        return self.qa_pipeline.run(question, retrieved_documents, **kwargs)

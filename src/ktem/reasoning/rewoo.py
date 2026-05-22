@@ -85,7 +85,7 @@ class DocSearchTool(BaseTool):
         docs = []
         doc_ids = []
         for retriever in self.retrievers:
-            for doc in retriever(text=query):
+            for doc in retriever.run(text=query):
                 if doc.doc_id not in doc_ids:
                     docs.append(doc)
                     doc_ids.append(doc.doc_id)
@@ -194,7 +194,7 @@ class RewriteQuestionPipeline(BaseComponent):
             SystemMessage(content="You are a helpful assistant"),
             HumanMessage(content=prompt),
         ]
-        return self.llm(messages)
+        return self.llm.run(messages)
 
 
 def find_text(llm_output, context):
@@ -336,7 +336,7 @@ class RewooAgentPipeline(BaseReasoning):
     async def ainvoke(  # type: ignore
         self, message, conv_id: str, history: list, **kwargs  # type: ignore
     ) -> Document:
-        answer = self.agent(message, use_citation=True)
+        answer = self.agent.run(message, use_citation=True)
         self.report_output(Document(content=answer.text, channel="chat"))
 
         refined_citations = self.prepare_citation(answer)
@@ -350,7 +350,7 @@ class RewooAgentPipeline(BaseReasoning):
         self, message, conv_id: str, history: list, **kwargs  # type: ignore
     ) -> Generator[Document, None, Document] | None:
         if self.use_rewrite:
-            rewrite = self.rewrite_pipeline(question=message)
+            rewrite = self.rewrite_pipeline.run(question=message)
             message = rewrite.text
             yield Document(
                 channel="info",

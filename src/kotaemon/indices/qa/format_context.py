@@ -107,7 +107,7 @@ class PrepareEvidencePipeline(BaseComponent):
         # trim context by trim_len
         print("len (original)", len(evidence))
         if evidence:
-            texts = evidence_trim_func([Document(text=evidence)])
+            texts = evidence_trim_func.run([Document(text=evidence)])
             evidence = texts[0].text
             print("len (trimmed)", len(evidence))
 

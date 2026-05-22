@@ -1,5 +1,6 @@
 import logging
 import threading
+import time
 from textwrap import dedent
 from typing import Generator
 
@@ -39,6 +40,13 @@ from .base import BaseReasoning
 logger = logging.getLogger(__name__)
 
 
+def _reasoning_log(message: str, level: int = logging.INFO) -> None:
+    """Log reasoning/RAG progress to logger and terminal."""
+
+    logger.log(level, message)
+    print(f"[reasoning] {message}", flush=True)
+
+
 class AddQueryContextPipeline(BaseComponent):
 
     n_last_interactions: int = 5
@@ -73,7 +81,7 @@ class AddQueryContextPipeline(BaseComponent):
 
         messages.append(HumanMessage(content=f"Generate search query for: {question}"))
 
-        resp = self.llm(messages).text
+        resp = self.llm.run(messages).text
         if resp == "0":
             return Document(content="")
 
@@ -127,9 +135,16 @@ class FullQAPipeline(BaseReasoning):
         docs, doc_ids = [], []
         plot_docs = []
 
+        _reasoning_log(f"Retrieval started: query_len={len(query)}")
         for idx, retriever in enumerate(self.retrievers):
             retriever_node = self._prepare_child(retriever, f"retriever_{idx}")
-            retriever_docs = retriever_node(text=query)
+            start_time = time.time()
+            _reasoning_log(f"Running retriever {idx}: {retriever_node}")
+            retriever_docs = retriever_node.run(text=query)
+            _reasoning_log(
+                f"Retriever {idx} returned {len(retriever_docs)} docs "
+                f"in {time.time() - start_time:.2f}s"
+            )
 
             retriever_docs_text = []
             retriever_docs_plot = []
@@ -210,7 +225,9 @@ class FullQAPipeline(BaseReasoning):
 
         if answer.metadata["citation_viz"] and len(docs) > 1:
             try:
-                citation_plot = self.create_citation_viz_pipeline(doc_texts, question)
+                citation_plot = self.create_citation_viz_pipeline.run(
+                    doc_texts, question
+                )
             except Exception as e:
                 print("Failed to create citation plot:", e)
 
@@ -283,16 +300,27 @@ class FullQAPipeline(BaseReasoning):
     ) -> Generator[Document, None, Document]:
         if self.use_rewrite and self.rewrite_pipeline:
             print("Chosen rewrite pipeline", self.rewrite_pipeline)
-            message = self.rewrite_pipeline(question=message).text
+            message = self.rewrite_pipeline.run(question=message).text
             print("Rewrite result", message)
 
-        print(f"Retrievers {self.retrievers}")
+        _reasoning_log(f"Retrievers {self.retrievers}")
         # should populate the context
+        retrieve_start = time.time()
         docs, infos = self.retrieve(message, history)
-        print(f"Got {len(docs)} retrieved documents")
+        _reasoning_log(
+            f"Got {len(docs)} retrieved documents "
+            f"in {time.time() - retrieve_start:.2f}s"
+        )
         yield from infos
 
-        evidence_mode, evidence, images = self.evidence_pipeline(docs).content
+        evidence_start = time.time()
+        _reasoning_log("Preparing evidence for answer generation")
+        evidence_mode, evidence, images = self.evidence_pipeline.run(docs).content
+        _reasoning_log(
+            f"Evidence prepared: mode={evidence_mode}, "
+            f"chars={len(evidence) if evidence else 0}, images={len(images)} "
+            f"in {time.time() - evidence_start:.2f}s"
+        )
 
         def generate_relevant_scores():
             nonlocal docs
@@ -305,6 +333,7 @@ class FullQAPipeline(BaseReasoning):
         else:
             scoring_thread = None
 
+        _reasoning_log("Starting answer generation")
         answer = yield from self.answering_pipeline.stream(
             question=message,
             history=history,
@@ -314,6 +343,8 @@ class FullQAPipeline(BaseReasoning):
             conv_id=conv_id,
             **kwargs,
         )
+
+        _reasoning_log("Answer generation finished")
 
         # check <think> tag from reasoning models
         processed_answer = replace_think_tag_with_details(answer.text)
@@ -501,7 +532,7 @@ class FullDecomposeQAPipeline(FullQAPipeline):
 
             yield from infos
 
-            evidence_mode, evidence, images = self.evidence_pipeline(docs).content
+            evidence_mode, evidence, images = self.evidence_pipeline.run(docs).content
             answer = yield from self.answering_pipeline.stream(
                 question=message,
                 history=history,
@@ -524,7 +555,7 @@ class FullDecomposeQAPipeline(FullQAPipeline):
         sub_question_answer_output = ""
         if self.rewrite_pipeline:
             print("Chosen rewrite pipeline", self.rewrite_pipeline)
-            result = self.rewrite_pipeline(question=message)
+            result = self.rewrite_pipeline.run(question=message)
             print("Rewrite result", result)
             if isinstance(result, Document):
                 message = result.text
@@ -551,7 +582,7 @@ class FullDecomposeQAPipeline(FullQAPipeline):
         print(f"Got {len(docs)} retrieved documents")
         yield from infos
 
-        evidence_mode, evidence, images = self.evidence_pipeline(docs).content
+        evidence_mode, evidence, images = self.evidence_pipeline.run(docs).content
         answer = yield from self.answering_pipeline.stream(
             question=message,
             history=history,

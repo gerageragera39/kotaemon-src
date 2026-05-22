@@ -73,7 +73,7 @@ class Planner(BaseComponent):
         prompt = self._compose_prompt(instruction)
         output.debug(f"Prompt: {prompt}")
         try:
-            response = self.model(prompt)
+            response = self.model.run(prompt)
             self.log_progress(".planner", response=response)
             output.info("Planner run successful.")
         except ValueError as e:
@@ -97,7 +97,7 @@ class Planner(BaseComponent):
             output.info("Planner run successful.")
         except NotImplementedError:
             print("Streaming is not supported, falling back to normal run")
-            response = self.model(prompt)
+            response = self.model.run(prompt)
             yield response
         except ValueError as e:
             output.error("Planner failed to retrieve response from LLM")

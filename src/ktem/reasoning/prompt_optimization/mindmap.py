@@ -89,7 +89,7 @@ Use the template like this:
             HumanMessage(content=prompt),
         ]
 
-        uml_text = self.llm(messages).text
+        uml_text = self.llm.run(messages).text
         markdown_text = self.convert_uml_to_markdown(uml_text)
 
         return Document(

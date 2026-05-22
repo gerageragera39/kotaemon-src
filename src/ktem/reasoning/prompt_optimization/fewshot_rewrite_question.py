@@ -47,7 +47,7 @@ class FewshotRewriteQuestionPipeline(RewriteQuestionPipeline):
             documents.append(doc)
 
         for i in range(0, len(documents), batch_size):
-            embeddings = self.embedding(documents[i : i + batch_size])
+            embeddings = self.embedding.run(documents[i : i + batch_size])
             ids = [t.doc_id for t in documents[i : i + batch_size]]
             self.vector_store.add(
                 embeddings=embeddings,
@@ -77,7 +77,7 @@ class FewshotRewriteQuestionPipeline(RewriteQuestionPipeline):
         return pipeline
 
     def run(self, question: str) -> Document:  # type: ignore
-        emb = self.embedding(question)[0].embedding
+        emb = self.embedding.run(question)[0].embedding
         _, _, ids = self.vector_store.query(embedding=emb, top_k=self.k)
         examples = self.doc_store.get(ids)
         messages = [SystemMessage(content="You are a helpful assistant")]
@@ -96,5 +96,5 @@ class FewshotRewriteQuestionPipeline(RewriteQuestionPipeline):
             )
         )
 
-        result = self.llm(messages)
+        result = self.llm.run(messages)
         return result
