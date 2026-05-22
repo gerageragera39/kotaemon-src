@@ -1671,12 +1671,19 @@ class FileSelector(BasePage):
 
     def get_selected_ids(self, components):
         mode, selected, user_id = components[0], components[1], components[2]
+        print(
+            f"[file-selector] mode={mode}, selected={selected}, user_id={user_id}",
+            flush=True,
+        )
         if user_id is None:
+            print("[file-selector] no user id; returning no files", flush=True)
             return []
 
         if mode == "disabled":
+            print("[file-selector] search disabled; returning no files", flush=True)
             return []
         elif mode == "select":
+            print(f"[file-selector] selected file ids={selected}", flush=True)
             return selected
 
         file_ids = []
@@ -1690,6 +1697,7 @@ class FileSelector(BasePage):
             for (id,) in results:
                 file_ids.append(id)
 
+        print(f"[file-selector] Search All resolved {len(file_ids)} file ids", flush=True)
         return file_ids
 
     def load_files(self, selected_files, user_id):

@@ -1248,8 +1248,17 @@ class ChatPage(BasePage):
                 if isinstance(index.selector, tuple):
                     for i in index.selector:
                         index_selected.append(selecteds[i])
+                print(
+                    f"[chat] index={index.id} selector={index.selector} "
+                    f"selected_payload={index_selected}",
+                    flush=True,
+                )
                 iretrievers = index.get_retriever_pipelines(
                     settings, user_id, index_selected
+                )
+                print(
+                    f"[chat] index={index.id} produced {len(iretrievers)} retrievers",
+                    flush=True,
                 )
                 retrievers += iretrievers
 

@@ -47,6 +47,7 @@ class KnetRetrievalPipeline(BaseFileIndexRetriever):
 
     collection_name: str = "default"
     rerankers: Sequence[BaseReranking] = [LLMReranking.withx()]
+    doc_ids: Optional[list[str]] = None
 
     def encode_image_base64(self, image_path: str | Path) -> bytes | str:
         """Convert image to base64"""
@@ -69,6 +70,9 @@ class KnetRetrievalPipeline(BaseFileIndexRetriever):
             text: the text to retrieve similar documents
             doc_ids: list of document ids to constraint the retrieval
         """
+        if doc_ids is None:
+            doc_ids = self.doc_ids
+
         print("searching in doc_ids", doc_ids)
         if not doc_ids:
             return []
@@ -111,7 +115,7 @@ class KnetRetrievalPipeline(BaseFileIndexRetriever):
             raise IOError(f"{response.status_code}: {response.text}")
 
         for reranker in self.rerankers:
-            docs = reranker(documents=docs, query=text)
+            docs = reranker.run(documents=docs, query=text)
 
         return docs
 
@@ -155,6 +159,8 @@ class KnetRetrievalPipeline(BaseFileIndexRetriever):
         retriever = cls(
             rerankers=[LLMTrulensScoring()],
         )
+
+        retriever.doc_ids = selected
 
         # hacky way to input doc_ids to retriever.run() call (through theflow)
         kwargs = {".doc_ids": selected}

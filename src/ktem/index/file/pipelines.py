@@ -111,6 +111,7 @@ class DocumentRetrievalPipeline(BaseFileIndexRetriever):
     mmr: bool = False
     top_k: int = 5
     retrieval_mode: str = "hybrid"
+    doc_ids: Optional[list[str]] = None
 
     @Node.auto(depends_on=["embedding", "VS", "DS"])
     def vector_retrieval(self) -> VectorRetrieval:
@@ -135,6 +136,9 @@ class DocumentRetrievalPipeline(BaseFileIndexRetriever):
             text: the text to retrieve similar documents
             doc_ids: list of document ids to constraint the retrieval
         """
+        if doc_ids is None:
+            doc_ids = self.doc_ids
+
         # flatten doc_ids in case of group of doc_ids are passed
         if doc_ids:
             flatten_doc_ids = []
@@ -334,6 +338,12 @@ class DocumentRetrievalPipeline(BaseFileIndexRetriever):
                 user_settings["reranking_llm"], llms.get_default()
             )
 
+        # Direct .run() calls do not consume theflow set_run kwargs. Store the
+        # selected ids explicitly so "Search All" / selected file ids still reach
+        # retrieval after bypassing theflow.__call__ deadlocks.
+        retriever.doc_ids = selected
+
+        # Preserve the old injection for any caller that still uses __call__.
         kwargs = {".doc_ids": selected}
         retriever.set_run(kwargs, temp=False)
         return retriever
