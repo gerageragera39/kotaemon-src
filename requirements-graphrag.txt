@@ -1,0 +1,4 @@
+# Optional Microsoft GraphRAG integration.
+# Kept out of base install because graphrag<=0.3.6 requires aiofiles>=24.1,
+# while Gradio 4.x requires aiofiles<24.
+graphrag<=0.3.6
