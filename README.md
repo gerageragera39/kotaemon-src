@@ -75,6 +75,49 @@ docker run --rm -p 7860:7860 \
 
 Open **http://localhost:7860** in your browser.
 
+### Local reranker (Text Embeddings Inference)
+
+You can run a **local cross-encoder reranker** in a separate container using [Hugging Face Text Embeddings Inference](https://huggingface.co/docs/text-embeddings-inference) (TEI). Kotaemon connects to it via the **TeiFastReranking** provider (Resources → Reranking models).
+
+**Prerequisites:** NVIDIA GPU and [NVIDIA Container Toolkit](https://docs.nvidia.com/datacenter/cloud-native/container-toolkit/install-guide.html) if you use `--gpus all`.
+
+Start TEI with `BAAI/bge-reranker-v2-m3` on port **8080**:
+
+```bash
+docker run -d --gpus all -p 8080:80 \
+  ghcr.io/huggingface/text-embeddings-inference:latest \
+  --model-id BAAI/bge-reranker-v2-m3
+```
+
+On first start the image downloads the model; wait until the service responds before running retrieval in Kotaemon.
+
+**Register in Kotaemon**
+
+1. Open the app → **Resources** → **Reranking models** → **Add**.
+2. Choose vendor/spec **TeiFastReranking** (see `config_example.txt` for field names).
+3. Use this YAML spec (adjust `endpoint_url` if Kotaemon runs in Docker):
+
+```yaml
+__type__: kotaemon.rerankings.TeiFastReranking
+endpoint_url: http://localhost:8080
+is_truncated: true
+model_name: BAAI/bge-reranker-v2-m3
+```
+
+| Kotaemon runs on | `endpoint_url` |
+|------------------|----------------|
+| Host (`.venv`, `python app.py`) | `http://localhost:8080` |
+| Docker (`kotaemon:full` on same machine) | `http://host.docker.internal:8080` |
+
+Set the model as **default** if you want file-index retrieval to use it automatically (or pick it in index settings where reranking is enabled).
+
+**Stop the reranker container**
+
+```bash
+docker ps   # note CONTAINER ID
+docker stop <container_id>
+```
+
 ### Demo / SSO modes
 
 ```bash

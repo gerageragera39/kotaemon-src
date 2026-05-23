@@ -41,7 +41,74 @@ class RagasEvaluatorModels:
     raw_embeddings: Any
     llm_name: str
     embeddings_name: str
+    run_config: Any | None
     notes: list[str]
+
+
+def _env_int(name: str, default: int, minimum: int = 1) -> int:
+    try:
+        return max(minimum, int(os.environ.get(name, default)))
+    except (TypeError, ValueError):
+        return default
+
+
+def _ragas_run_config() -> Any | None:
+    """Runtime settings for local RAGAS scoring.
+
+    Local LLM endpoints are usually slower than hosted evaluators, but a strong
+    single-GPU server can still handle bounded parallel judge calls. RAGAS defaults
+    to 16 concurrent jobs with a 180s per-job timeout, which can overload local
+    endpoints and produce `Exception raised in Job[...]` timeout logs. Keep the
+    metric set unchanged, but use moderate parallelism plus a longer per-operation
+    timeout. Environment variables allow users to tune this without code changes.
+    """
+
+    try:
+        from ragas.run_config import RunConfig  # type: ignore
+    except Exception:
+        return None
+
+    return RunConfig(
+        timeout=_env_int("RAGAS_EVAL_TIMEOUT_SEC", 1800),
+        max_workers=_env_int("RAGAS_EVAL_MAX_WORKERS", 4),
+        max_retries=_env_int("RAGAS_EVAL_MAX_RETRIES", 2),
+        max_wait=_env_int("RAGAS_EVAL_MAX_WAIT_SEC", 10),
+    )
+
+
+def _run_config_note(run_config: Any | None) -> str:
+    if run_config is None:
+        return "RAGAS runtime uses installed-version defaults."
+    return (
+        "RAGAS runtime: "
+        f"timeout={getattr(run_config, 'timeout', 'default')}s, "
+        f"max_workers={getattr(run_config, 'max_workers', 'default')}, "
+        f"max_retries={getattr(run_config, 'max_retries', 'default')}."
+    )
+
+
+def _apply_model_timeout(model: Any, run_config: Any | None) -> None:
+    """Best-effort propagation of RAGAS timeout into LangChain clients."""
+
+    timeout = getattr(run_config, "timeout", None)
+    if timeout is None:
+        return
+
+    for attr in ("request_timeout", "timeout"):
+        try:
+            setattr(model, attr, timeout)
+        except Exception:
+            pass
+
+    # Some LangChain wrappers keep the actual model one level down.
+    for nested_attr in ("langchain_llm", "bound", "model"):
+        nested = getattr(model, nested_attr, None)
+        if nested is not None and nested is not model:
+            for attr in ("request_timeout", "timeout"):
+                try:
+                    setattr(nested, attr, timeout)
+                except Exception:
+                    pass
 
 
 def find_default_dataset_path(start: Path | None = None) -> Path | None:
@@ -489,13 +556,18 @@ def _to_langchain_embeddings(settings: dict[str, Any]) -> tuple[Any, str]:
     return _kotaemon_embedding_adapter(embedding_model), embedding_name
 
 
-def _wrap_for_ragas(llm: Any, embeddings: Any) -> tuple[Any, Any]:
+def _wrap_for_ragas(
+    llm: Any, embeddings: Any, run_config: Any | None = None
+) -> tuple[Any, Any]:
     """Use RAGAS' official wrappers when the installed version exposes them."""
 
     try:
         from ragas.llms import LangchainLLMWrapper  # type: ignore
 
-        llm = LangchainLLMWrapper(llm)
+        try:
+            llm = LangchainLLMWrapper(llm, run_config=run_config)
+        except TypeError:
+            llm = LangchainLLMWrapper(llm)
     except Exception:
         # Recent RAGAS versions can also auto-wrap LangChain models in evaluate().
         pass
@@ -503,14 +575,19 @@ def _wrap_for_ragas(llm: Any, embeddings: Any) -> tuple[Any, Any]:
     try:
         from ragas.embeddings import LangchainEmbeddingsWrapper  # type: ignore
 
-        embeddings = LangchainEmbeddingsWrapper(embeddings)
+        try:
+            embeddings = LangchainEmbeddingsWrapper(embeddings, run_config=run_config)
+        except TypeError:
+            embeddings = LangchainEmbeddingsWrapper(embeddings)
     except Exception:
         pass
 
     return llm, embeddings
 
 
-def _local_ragas_evaluator_models(settings: dict[str, Any]) -> RagasEvaluatorModels:
+def _local_ragas_evaluator_models(
+    settings: dict[str, Any], run_config: Any | None = None
+) -> RagasEvaluatorModels:
     """Build the local evaluator LLM/embeddings explicitly for RAGAS.
 
     If these are omitted, RAGAS creates its default evaluator stack, which is
@@ -519,17 +596,21 @@ def _local_ragas_evaluator_models(settings: dict[str, Any]) -> RagasEvaluatorMod
     """
 
     llm, llm_name = _to_langchain_llm(settings)
+    _apply_model_timeout(llm, run_config)
     raw_embeddings, embeddings_name = _to_langchain_embeddings(settings)
-    llm, embeddings = _wrap_for_ragas(llm, raw_embeddings)
+    llm, embeddings = _wrap_for_ragas(llm, raw_embeddings, run_config)
+    _apply_model_timeout(llm, run_config)
     return RagasEvaluatorModels(
         llm=llm,
         embeddings=embeddings,
         raw_embeddings=raw_embeddings,
         llm_name=llm_name,
         embeddings_name=embeddings_name,
+        run_config=run_config,
         notes=[
             "RAGAS evaluator uses Kotaemon local models: "
-            f"llm={llm_name}, embeddings={embeddings_name}."
+            f"llm={llm_name}, embeddings={embeddings_name}.",
+            _run_config_note(run_config),
         ],
     )
 
@@ -710,14 +791,23 @@ def _evaluate_with_local_models(
         "raise_exceptions": False,
         "show_progress": False,
     }
+    if evaluator.run_config is not None:
+        optional_kwargs["run_config"] = evaluator.run_config
 
-    try:
-        return evaluate(**base_kwargs, **optional_kwargs)
-    except TypeError as exc:
-        message = str(exc)
-        if "raise_exceptions" in message or "show_progress" in message:
-            return evaluate(**base_kwargs)
-        raise
+    while True:
+        try:
+            return evaluate(**base_kwargs, **optional_kwargs)
+        except TypeError as exc:
+            message = str(exc)
+            unsupported = [
+                key
+                for key in ("raise_exceptions", "show_progress", "run_config")
+                if key in message and key in optional_kwargs
+            ]
+            if not unsupported:
+                raise
+            for key in unsupported:
+                optional_kwargs.pop(key, None)
 
 
 
@@ -730,7 +820,8 @@ def _run_ragas(
     if not valid_rows:
         return pd.DataFrame(), []
 
-    evaluator = _local_ragas_evaluator_models(settings)
+    run_config = _ragas_run_config()
+    evaluator = _local_ragas_evaluator_models(settings, run_config)
     metrics = _ragas_metrics()
 
     try:
