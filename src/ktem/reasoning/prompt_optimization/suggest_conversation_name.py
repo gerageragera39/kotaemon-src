@@ -33,4 +33,4 @@ class SuggestConvNamePipeline(BaseComponent):
 
         messages.append(HumanMessage(content=prompt))
 
-        return self.llm.run(messages)
+        return self.llm(messages)

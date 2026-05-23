@@ -2,12 +2,11 @@
 
 install:
 	uv venv .venv --python 3.11
+	uv pip install -r requirements_gerageragera39.txt
 	uv pip install -e ".[dev]"
 
-install-gpu:
-	uv venv .venv --python 3.11
-	uv pip install -r requirements-gpu.txt
-	uv pip install -e ".[dev]"
+install-gpu: install
+	uv pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu121
 
 run:
 	.venv/Scripts/python app.py

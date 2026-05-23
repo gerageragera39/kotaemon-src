@@ -1,3 +1,5 @@
+For .venv:
+
 api_key: ollama
 base_url: http://localhost:11434/v1
 model: qwen3:8b
@@ -10,3 +12,18 @@ base_url: http://localhost:11434/v1
 model: qwen3-embedding:0.6b
 timeout: 600
 
+______________________________________
+
+For Docker:
+
+api_key: ollama
+base_url: http://host.docker.internal:11434/v1
+model: qwen3:8b
+temperature: 0
+timeout: 120
+
+
+api_key: ollama
+base_url: http://host.docker.internal:11434/v1
+model: qwen3-embedding:0.6b
+timeout: 600
