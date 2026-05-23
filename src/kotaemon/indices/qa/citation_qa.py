@@ -328,12 +328,53 @@ class AnswerWithContextPipeline(BaseComponent):
 
         spans = self.match_evidence_with_context(answer, docs)
         id2docs = {doc.doc_id: doc for doc in docs}
-        not_detected = set(id2docs.keys()) - set(spans.keys())
+        doc_order = {doc.doc_id: idx for idx, doc in enumerate(docs)}
+        not_detected = [doc.doc_id for doc in docs if doc.doc_id not in spans]
+
+        def _score(value, default: float = 0.0) -> float:
+            try:
+                return float(value)
+            except (TypeError, ValueError):
+                return default
+
+        def _vector_score(doc) -> float | None:
+            # -1.0 is the sentinel for full-text-only hits. Vector-only retrieval
+            # carries the actual similarity in doc.score, so use it as the fallback
+            # when LLM/reranker scores are missing or tied at 0.
+            score = _score(getattr(doc, "score", None), default=-1.0)
+            return None if score == -1.0 else score
+
+        def _ranking_key(doc_id: str) -> tuple:
+            doc = id2docs[doc_id]
+            llm_score = doc.metadata.get("llm_trulens_score")
+            reranking_score = doc.metadata.get("reranking_score")
+            vector_score = _vector_score(doc)
+            return (
+                1 if llm_score is not None else 0,
+                _score(llm_score),
+                1 if reranking_score is not None else 0,
+                _score(reranking_score),
+                1 if vector_score is not None else 0,
+                _score(vector_score),
+                -doc_order[doc_id],
+            )
+
+        def _display_score(doc) -> float:
+            llm_score = doc.metadata.get("llm_trulens_score")
+            if llm_score is not None and _score(llm_score) > 0:
+                return _score(llm_score)
+
+            reranking_score = doc.metadata.get("reranking_score")
+            if reranking_score is not None and _score(reranking_score) > 0:
+                return _score(reranking_score)
+
+            return _score(_vector_score(doc))
 
         # render highlight spans
         for _id, ss in spans.items():
             if not ss:
-                not_detected.add(_id)
+                if _id not in not_detected:
+                    not_detected.append(_id)
                 continue
             cur_doc = id2docs[_id]
             highlight_text = ""
@@ -380,15 +421,15 @@ class AnswerWithContextPipeline(BaseComponent):
 
         print("Got {} cited docs".format(len(with_citation)))
 
-        sorted_not_detected_items_with_scores = [
-            (id_, id2docs[id_].metadata.get("llm_trulens_score", 0.0))
-            for id_ in not_detected
-        ]
-        sorted_not_detected_items_with_scores.sort(key=lambda x: x[1], reverse=True)
+        sorted_not_detected = sorted(
+            not_detected,
+            key=_ranking_key,
+            reverse=True,
+        )
 
-        for id_, _ in sorted_not_detected_items_with_scores:
+        for id_ in sorted_not_detected:
             doc = id2docs[id_]
-            doc_score = doc.metadata.get("llm_trulens_score", 0.0)
+            doc_score = _display_score(doc)
             is_open = not has_llm_score or (
                 doc_score
                 > CONTEXT_RELEVANT_WARNING_SCORE

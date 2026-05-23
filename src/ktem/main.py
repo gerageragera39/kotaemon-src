@@ -2,6 +2,7 @@ import gradio as gr
 from decouple import config
 from ktem.app import BaseApp
 from ktem.pages.chat import ChatPage
+from ktem.pages.evaluation import EvaluationPage
 from ktem.pages.help import HelpPage
 from ktem.pages.resources import ResourcesTab
 from ktem.pages.settings import SettingsPage
@@ -92,6 +93,15 @@ class App(BaseApp):
                             setattr(self, f"_index_{index.id}", page)
 
             if not KH_DEMO_MODE:
+                with gr.Tab(
+                    "Evaluation",
+                    elem_id="evaluation-tab",
+                    id="evaluation-tab",
+                    visible=not self.f_user_management,
+                    elem_classes=["fill-main-area-height", "scrollable"],
+                ) as self._tabs["evaluation-tab"]:
+                    self.evaluation_page = EvaluationPage(self)
+
                 if not KH_SSO_ENABLED:
                     with gr.Tab(
                         "Resources",

@@ -118,11 +118,11 @@ class LLMTrulensScoring(LLMReranking):
         """Filter down documents based on their relevance to the query."""
         filtered_docs = []
 
-        documents = sorted(documents, key=lambda doc: doc.get_content())
+        indexed_documents = list(enumerate(documents))
         if self.concurrent:
             with ThreadPoolExecutor() as executor:
                 futures = []
-                for doc in documents:
+                for doc_idx, doc in indexed_documents:
                     chunked_doc_content = self.trim_func.run(
                         [
                             Document(content=doc.get_content())
@@ -142,15 +142,15 @@ class LLMTrulensScoring(LLMReranking):
                         )
                     )
 
-                    def llm_call():
+                    def llm_call(messages=messages):
                         return self.llm.run(messages).text
 
-                    futures.append(executor.submit(llm_call))
+                    futures.append((doc_idx, executor.submit(llm_call)))
 
-                results = [future.result() for future in futures]
+                results = [(doc_idx, future.result()) for doc_idx, future in futures]
         else:
             results = []
-            for doc in documents:
+            for doc_idx, doc in indexed_documents:
                 messages = []
                 messages.append(SystemMessage(self.system_prompt_template.populate()))
                 messages.append(
@@ -160,17 +160,21 @@ class LLMTrulensScoring(LLMReranking):
                         )
                     )
                 )
-                results.append(self.llm.run(messages).text)
+                results.append((doc_idx, self.llm.run(messages).text))
 
         # use Boolean parser to extract relevancy output from LLM
         results = [
-            (r_idx, float(re_0_10_rating(result)) / self.normalize)
-            for r_idx, result in enumerate(results)
+            (doc_idx, float(re_0_10_rating(result)) / self.normalize)
+            for doc_idx, result in results
         ]
-        results.sort(key=lambda x: x[1], reverse=True)
+        # Keep the original retrieval order as a deterministic tie-breaker. This is
+        # especially important for vector-only retrieval where the LLM scorer can
+        # return 0 for every chunk; reordering those ties hides the actual top vector
+        # hit in the Information panel.
+        results.sort(key=lambda x: (x[1], -x[0]), reverse=True)
 
-        for r_idx, score in results:
-            doc = documents[r_idx]
+        for doc_idx, score in results:
+            doc = documents[doc_idx]
             doc.metadata["llm_trulens_score"] = score
             filtered_docs.append(doc)
 

@@ -166,10 +166,12 @@ class Render:
         """Format the retrieval score and the document"""
         # score from doc_store (Elasticsearch)
         if is_close(doc.score, -1.0):
+            vectorstore_score_value = None
             vectorstore_score = ""
             text_search_str = " (full-text search)<br>"
         else:
-            vectorstore_score = str(round(doc.score, 2))
+            vectorstore_score_value = round(doc.score, 2)
+            vectorstore_score = str(vectorstore_score_value)
             text_search_str = "<br>"
 
         llm_reranking_score = (
@@ -194,6 +196,8 @@ class Render:
             relevant_score = llm_reranking_score
         elif reranking_score > 0:
             relevant_score = reranking_score
+        elif vectorstore_score_value is not None:
+            relevant_score = vectorstore_score_value
         else:
             relevant_score = 0.0
 
@@ -221,7 +225,7 @@ class Render:
 
         rendered_header = Render.preview(
             f"<i>{item_type_prefix}{get_header(doc)}</i>"
-            f" [score: {llm_reranking_score}]",
+            f" [score: {round(relevant_score, 2)}]",
             doc,
             highlight_text=highlight_text,
         )
