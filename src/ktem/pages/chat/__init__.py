@@ -321,18 +321,12 @@ class ChatPage(BasePage):
                 ) as self.chat_settings:
                     with gr.Row(elem_id="quick-setting-labels"):
                         gr.HTML("Reasoning method")
-                        gr.HTML(
-                            "Model", visible=not KH_DEMO_MODE and not KH_SSO_ENABLED
-                        )
                         gr.HTML("Language")
 
                     with gr.Row():
                         reasoning_setting = (
                             self._app.default_settings.reasoning.settings["use"]
                         )
-                        model_setting = self._app.default_settings.reasoning.options[
-                            "simple"
-                        ].settings["llm"]
                         language_setting = (
                             self._app.default_settings.reasoning.settings["lang"]
                         )
@@ -346,13 +340,7 @@ class ChatPage(BasePage):
                             container=False,
                             show_label=False,
                         )
-                        self.model_type = gr.Dropdown(
-                            choices=model_setting.choices,
-                            value=model_setting.value,
-                            container=False,
-                            show_label=False,
-                            visible=not KH_DEMO_MODE and not KH_SSO_ENABLED,
-                        )
+                        self.model_type = gr.State(value=DEFAULT_SETTING)
                         self.language = gr.Dropdown(
                             choices=language_setting.choices,
                             value=language_setting.value,
@@ -1200,7 +1188,6 @@ class ChatPage(BasePage):
             "language",
             session_language,
         )
-        print("Session LLM", session_llm)
         reasoning_mode = (
             settings["reasoning.use"]
             if session_reasoning_type in (DEFAULT_SETTING, None)
@@ -1211,13 +1198,6 @@ class ChatPage(BasePage):
         reasoning_id = reasoning_cls.get_info()["id"]
 
         settings = deepcopy(settings)
-        llm_setting_key = f"reasoning.options.{reasoning_id}.llm"
-        if llm_setting_key in settings and session_llm not in (
-            DEFAULT_SETTING,
-            None,
-            "",
-        ):
-            settings[llm_setting_key] = session_llm
 
         if session_use_mindmap not in (DEFAULT_SETTING, None):
             settings["reasoning.options.simple.create_mindmap"] = session_use_mindmap

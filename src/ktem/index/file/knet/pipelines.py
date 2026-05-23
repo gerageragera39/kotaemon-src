@@ -121,23 +121,7 @@ class KnetRetrievalPipeline(BaseFileIndexRetriever):
 
     @classmethod
     def get_user_settings(cls) -> dict:
-        from ktem.llms.manager import llms
-
-        try:
-            reranking_llm = llms.get_default_name()
-            reranking_llm_choices = list(llms.options().keys())
-        except Exception:
-            reranking_llm = None
-            reranking_llm_choices = []
-
         return {
-            "reranking_llm": {
-                "name": "LLM for scoring",
-                "value": reranking_llm,
-                "component": "dropdown",
-                "choices": reranking_llm_choices,
-                "special_type": "llm",
-            },
             "retrieval_mode": {
                 "name": "Retrieval mode",
                 "value": "hybrid",
@@ -168,8 +152,6 @@ class KnetRetrievalPipeline(BaseFileIndexRetriever):
 
         for reranker in retriever.rerankers:
             if isinstance(reranker, LLMReranking):
-                reranker.llm = llms.get(
-                    user_settings["reranking_llm"], llms.get_default()
-                )
+                reranker.llm = llms.get_default()
 
         return retriever

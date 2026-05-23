@@ -392,8 +392,6 @@ class SetupPage(BasePage):
 
     def update_default_settings(self, radio_model_value, default_settings):
         # revise default settings
-        # reranking llm
-        default_settings["index.options.1.reranking_llm"] = radio_model_value
         if radio_model_value == "ollama":
             default_settings["index.options.1.use_llm_reranking"] = False
 

@@ -19,17 +19,20 @@ class RerankingManager:
         self._default: str = ""
         self._vendors: list[Type] = []
 
-        # populate the pool if empty
+        # Ensure configured local defaults exist even when older cloud rows remain
+        # in the database; cloud rows are filtered out by load().
         if hasattr(flowsettings, "KH_RERANKINGS"):
             with Session(engine) as sess:
-                count = sess.query(RerankingTable).count()
-            if not count:
                 for name, model in flowsettings.KH_RERANKINGS.items():
-                    self.add(
-                        name=name,
-                        spec=model["spec"],
-                        default=model.get("default", False),
-                    )
+                    stmt = select(RerankingTable).where(RerankingTable.name == name)
+                    if not sess.execute(stmt).first():
+                        item = RerankingTable(
+                            name=name,
+                            spec=model["spec"],
+                            default=model.get("default", False),
+                        )
+                        sess.add(item)
+                        sess.commit()
 
         self.load()
         self.load_vendors()
@@ -42,6 +45,8 @@ class RerankingManager:
             items = sess.execute(stmt)
 
             for (item,) in items:
+                if not self._is_local_spec(item.spec):
+                    continue
                 self._models[item.name] = deserialize(item.spec, safe=False)
                 self._info[item.name] = {
                     "name": item.name,
@@ -51,14 +56,15 @@ class RerankingManager:
                 if item.default:
                     self._default = item.name
 
-    def load_vendors(self):
-        from kotaemon.rerankings import (
-            CohereReranking,
-            TeiFastReranking,
-            VoyageAIReranking,
-        )
+    @staticmethod
+    def _is_local_spec(spec: dict) -> bool:
+        return spec.get("__type__", "").endswith("TeiFastReranking")
 
-        self._vendors = [TeiFastReranking, CohereReranking, VoyageAIReranking]
+    def load_vendors(self):
+        from kotaemon.rerankings import TeiFastReranking
+
+        # Local-only UI: reranking is provided by a local TEI-compatible endpoint.
+        self._vendors = [TeiFastReranking]
 
     def __getitem__(self, key: str) -> BaseReranking:
         """Get model by name"""

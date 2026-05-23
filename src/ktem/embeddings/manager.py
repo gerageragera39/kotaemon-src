@@ -19,17 +19,20 @@ class EmbeddingManager:
         self._default: str = ""
         self._vendors: list[Type] = []
 
-        # populate the pool if empty
+        # Ensure configured local defaults exist even when older cloud rows remain
+        # in the database; cloud rows are filtered out by load().
         if hasattr(flowsettings, "KH_EMBEDDINGS"):
             with Session(engine) as sess:
-                count = sess.query(EmbeddingTable).count()
-            if not count:
                 for name, model in flowsettings.KH_EMBEDDINGS.items():
-                    self.add(
-                        name=name,
-                        spec=model["spec"],
-                        default=model.get("default", False),
-                    )
+                    stmt = select(EmbeddingTable).where(EmbeddingTable.name == name)
+                    if not sess.execute(stmt).first():
+                        item = EmbeddingTable(
+                            name=name,
+                            spec=model["spec"],
+                            default=model.get("default", False),
+                        )
+                        sess.add(item)
+                        sess.commit()
 
         self.load()
         self.load_vendors()
@@ -42,6 +45,8 @@ class EmbeddingManager:
             items = sess.execute(stmt)
 
             for (item,) in items:
+                if not self._is_local_spec(item.spec):
+                    continue
                 self._models[item.name] = deserialize(item.spec, safe=False)
                 self._info[item.name] = {
                     "name": item.name,
@@ -52,30 +57,29 @@ class EmbeddingManager:
                     self._default = item.name
                     self._models["default"] = self._models[item.name]
 
+    @staticmethod
+    def _is_local_spec(spec: dict) -> bool:
+        spec_type = spec.get("__type__", "")
+        if spec_type.endswith(("LCHuggingFaceEmbeddings", "TeiEndpointEmbeddings")):
+            return True
+        if spec_type.endswith("OpenAIEmbeddings"):
+            base_url = str(spec.get("base_url", "")).lower()
+            return base_url.startswith(("http://localhost", "http://127.")) or (
+                base_url.startswith("http://") and "api." not in base_url
+            )
+        return False
+
     def load_vendors(self):
         from kotaemon.embeddings import (
-            AzureOpenAIEmbeddings,
-            FastEmbedEmbeddings,
-            LCCohereEmbeddings,
-            LCGoogleEmbeddings,
             LCHuggingFaceEmbeddings,
-            LCMistralEmbeddings,
             OpenAIEmbeddings,
             TeiEndpointEmbeddings,
-            VoyageAIEmbeddings,
         )
 
-        self._vendors = [
-            AzureOpenAIEmbeddings,
-            OpenAIEmbeddings,
-            FastEmbedEmbeddings,
-            LCCohereEmbeddings,
-            LCHuggingFaceEmbeddings,
-            LCGoogleEmbeddings,
-            LCMistralEmbeddings,
-            TeiEndpointEmbeddings,
-            VoyageAIEmbeddings,
-        ]
+        # Local-only UI: OpenAI-compatible local embeddings, HuggingFace local
+        # models, and TEI endpoint embeddings. Cloud-specific embedding vendors
+        # and FastEmbed are intentionally not exposed.
+        self._vendors = [OpenAIEmbeddings, LCHuggingFaceEmbeddings, TeiEndpointEmbeddings]
 
     def __getitem__(self, key: str) -> BaseEmbeddings:
         """Get model by name"""

@@ -3,7 +3,7 @@ from ktem.app import BasePage
 from ktem.db.models import User, engine
 from ktem.embeddings.ui import EmbeddingManagement
 from ktem.index.ui import IndexManagement
-from ktem.llms.ui import LLMManagement
+from ktem.llms.ui import LLMManagement, LocalModelAddBlock
 from ktem.mcp.ui import MCPManagement
 from ktem.rerankings.ui import RerankingManagement
 from sqlmodel import Session, select
@@ -28,6 +28,14 @@ class ResourcesTab(BasePage):
 
         with gr.Tab("Rerankings") as self.rerank_management_tab:
             self.rerank_management = RerankingManagement(self._app)
+
+        with gr.Tab("Local Models") as self.local_models_tab:
+            self.local_model_add = LocalModelAddBlock(
+                self._app,
+                llm_page=self.llm_management,
+                embedding_page=self.emb_management,
+                reranking_page=self.rerank_management,
+            )
 
         with gr.Tab("MCP Servers") as self.mcp_management_tab:
             self.mcp_management = MCPManagement(self._app)

@@ -265,8 +265,7 @@ class ReactAgentPipeline(BaseReasoning):
         _id = cls.get_info()["id"]
         prefix = f"reasoning.options.{_id}"
 
-        llm_name = settings[f"{prefix}.llm"]
-        llm = llms.get(llm_name, llms.get_default())
+        llm = llms.get_default()
 
         max_context_length_setting = settings.get("reasoning.max_context_length", None)
 
@@ -307,13 +306,6 @@ class ReactAgentPipeline(BaseReasoning):
 
     @classmethod
     def get_user_settings(cls) -> dict:
-        llm = ""
-        llm_choices = [("(default)", "")]
-        try:
-            llm_choices += [(_, _) for _ in llms.options().keys()]
-        except Exception as e:
-            logger.exception(f"Failed to get LLM options: {e}")
-
         tool_choices = ["Wikipedia", "Google", "LLM", "SearchDoc"]
         try:
             tool_choices += mcp_manager.get_enabled_tools()
@@ -321,17 +313,6 @@ class ReactAgentPipeline(BaseReasoning):
             logger.exception(f"Failed to get MCP tool options: {e}")
 
         return {
-            "llm": {
-                "name": "Language model",
-                "value": llm,
-                "component": "dropdown",
-                "choices": llm_choices,
-                "special_type": "llm",
-                "info": (
-                    "The language model to use for generating the answer. If None, "
-                    "the application default language model will be used."
-                ),
-            },
             "tools": {
                 "name": "Tools for knowledge retrieval",
                 "value": ["SearchDoc", "LLM"],

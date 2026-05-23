@@ -31,7 +31,7 @@ class EmbeddingManagement(BasePage):
     def on_building_ui(self):
         with gr.Tab(label="View"):
             self.emb_list = gr.DataFrame(
-                headers=["name", "vendor", "default"],
+                headers=["name", "adapter", "default"],
                 interactive=False,
                 column_widths=[30, 40, 30],
             )
@@ -95,7 +95,7 @@ class EmbeddingManagement(BasePage):
                     with gr.Column():
                         self.edit_spec_desc = gr.Markdown("# Spec description")
 
-        with gr.Tab(label="Add"):
+        with gr.Tab(label="Advanced local YAML"):
             with gr.Row():
                 with gr.Column(scale=2):
                     self.name = gr.Textbox(
@@ -105,16 +105,23 @@ class EmbeddingManagement(BasePage):
                             "The name will be used to identify the embedding model."
                         ),
                     )
-                    self.emb_choices = gr.Dropdown(
-                        label="Vendors",
-                        info=(
-                            "Choose the vendor of the Embedding model. Each vendor "
-                            "has different specification."
-                        ),
+                    gr.Markdown(
+                        (
+                            "**Provider:** OpenAI-compatible local endpoint "
+                            "(`kotaemon.embeddings.OpenAIEmbeddings`).\n\n"
+                            "Example:\n"
+                            "```yaml\n"
+                            "api_key: ollama\n"
+                            "base_url: http://localhost:11434/v1\n"
+                            "model: qwen3-embedding:0.6b\n"
+                            "timeout: 600\n"
+                            "```"
+                        )
                     )
                     self.spec = gr.Textbox(
                         label="Specification",
                         info="Specification of the Embedding model in YAML format.",
+                        lines=6,
                     )
                     self.default = gr.Checkbox(
                         label="Set default",
@@ -136,37 +143,16 @@ class EmbeddingManagement(BasePage):
             inputs=[],
             outputs=[self.emb_list],
         )
-        self._app.app.load(
-            lambda: gr.update(choices=list(embedding_models_manager.vendors().keys())),
-            outputs=[self.emb_choices],
-        )
-
-    def on_emb_vendor_change(self, vendor):
-        vendor = embedding_models_manager.vendors()[vendor]
-
-        required: dict = {}
-        desc = vendor.describe()
-        for key, value in desc["params"].items():
-            if value.get("required", False):
-                required[key] = value.get("default", None)
-
-        return yaml.dump(required), format_description(vendor)
 
     def on_register_events(self):
-        self.emb_choices.select(
-            self.on_emb_vendor_change,
-            inputs=[self.emb_choices],
-            outputs=[self.spec, self.spec_desc],
-        )
         self.btn_new.click(
             self.create_emb,
-            inputs=[self.name, self.emb_choices, self.spec, self.default],
+            inputs=[self.name, self.spec, self.default],
             outputs=None,
         ).success(self.list_embeddings, inputs=[], outputs=[self.emb_list]).success(
-            lambda: ("", None, "", False, self.spec_desc_default),
+            lambda: ("", "", False, self.spec_desc_default),
             outputs=[
                 self.name,
-                self.emb_choices,
                 self.spec,
                 self.default,
                 self.spec_desc,
@@ -249,15 +235,11 @@ class EmbeddingManagement(BasePage):
             outputs=[self.connection_logs],
         )
 
-    def create_emb(self, name, choices, spec, default):
+    def create_emb(self, name, spec, default):
         try:
             name = name.strip()
-            spec = yaml.load(spec, Loader=YAMLNoDateSafeLoader)
-            spec["__type__"] = (
-                embedding_models_manager.vendors()[choices].__module__
-                + "."
-                + embedding_models_manager.vendors()[choices].__qualname__
-            )
+            spec = yaml.load(spec, Loader=YAMLNoDateSafeLoader) or {}
+            spec["__type__"] = "kotaemon.embeddings.OpenAIEmbeddings"
 
             embedding_models_manager.add(name, spec=spec, default=default)
             gr.Info(f'Embedding model "{name}" created successfully')
@@ -272,7 +254,7 @@ class EmbeddingManagement(BasePage):
         for item in embedding_models_manager.info().values():
             record = {}
             record["name"] = item["name"]
-            record["vendor"] = item["spec"].get("__type__", "-").split(".")[-1]
+            record["adapter"] = item["spec"].get("__type__", "-").split(".")[-1]
             record["default"] = item["default"]
             items.append(record)
 
@@ -280,7 +262,7 @@ class EmbeddingManagement(BasePage):
             emb_list = pd.DataFrame.from_records(items)
         else:
             emb_list = pd.DataFrame.from_records(
-                [{"name": "-", "vendor": "-", "default": "-"}]
+                [{"name": "-", "adapter": "-", "default": "-"}]
             )
 
         return emb_list
@@ -315,11 +297,15 @@ class EmbeddingManagement(BasePage):
 
             info = deepcopy(embedding_models_manager.info()[selected_emb_name])
             vendor_str = info["spec"].pop("__type__", "-").split(".")[-1]
-            vendor = embedding_models_manager.vendors()[vendor_str]
+            vendor = embedding_models_manager.vendors().get(vendor_str)
 
             edit_name = selected_emb_name
             edit_spec = yaml.dump(info["spec"])
-            edit_spec_desc = format_description(vendor)
+            edit_spec_desc = (
+                format_description(vendor)
+                if vendor is not None
+                else f"# Spec description\n\n{vendor_str}"
+            )
             edit_default = info["default"]
 
         return (

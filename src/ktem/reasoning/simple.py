@@ -381,8 +381,7 @@ class FullQAPipeline(BaseReasoning):
         pipeline = cls.prepare_pipeline_instance(settings, retrievers)
 
         prefix = f"reasoning.options.{cls.get_info()['id']}"
-        llm_name = settings.get(f"{prefix}.llm", None)
-        llm = llms.get(llm_name, llms.get_default())
+        llm = llms.get_default()
 
         # prepare evidence pipeline configuration
         evidence_pipeline = pipeline.evidence_pipeline
@@ -427,27 +426,7 @@ class FullQAPipeline(BaseReasoning):
 
     @classmethod
     def get_user_settings(cls) -> dict:
-        from ktem.llms.manager import llms
-
-        llm = ""
-        choices = [("(default)", "")]
-        try:
-            choices += [(_, _) for _ in llms.options().keys()]
-        except Exception as e:
-            logger.exception(f"Failed to get LLM options: {e}")
-
         return {
-            "llm": {
-                "name": "Language model",
-                "value": llm,
-                "component": "dropdown",
-                "choices": choices,
-                "special_type": "llm",
-                "info": (
-                    "The language model to use for generating the answer. If None, "
-                    "the application default language model will be used."
-                ),
-            },
             "highlight_citation": {
                 "name": "Citation style",
                 "value": (

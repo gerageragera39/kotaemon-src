@@ -44,6 +44,8 @@ class LLMManager:
             items = session.execute(stmt)
 
             for (item,) in items:
+                if not self._is_local_spec(item.spec):
+                    continue
                 self._models[item.name] = deserialize(item.spec, safe=False)
                 self._info[item.name] = {
                     "name": item.name,
@@ -53,26 +55,25 @@ class LLMManager:
                 if item.default:
                     self._default = item.name
 
-    def load_vendors(self):
-        from kotaemon.llms import (
-            AzureChatOpenAI,
-            ChatOpenAI,
-            LCAnthropicChat,
-            LCCohereChat,
-            LCGeminiChat,
-            LCOllamaChat,
-            LlamaCppChat,
-        )
+    @staticmethod
+    def _is_local_spec(spec: dict) -> bool:
+        spec_type = spec.get("__type__", "")
+        if spec_type.endswith(("LCOllamaChat", "LlamaCppChat")):
+            return True
+        if spec_type.endswith("ChatOpenAI"):
+            base_url = str(spec.get("base_url", "")).lower()
+            return base_url.startswith(("http://localhost", "http://127.")) or (
+                base_url.startswith("http://") and "api." not in base_url
+            )
+        return False
 
-        self._vendors = [
-            ChatOpenAI,
-            AzureChatOpenAI,
-            LCAnthropicChat,
-            LCGeminiChat,
-            LCCohereChat,
-            LCOllamaChat,
-            LlamaCppChat,
-        ]
+    def load_vendors(self):
+        from kotaemon.llms import ChatOpenAI, LCOllamaChat, LlamaCppChat
+
+        # Local-only UI: OpenAI-compatible local endpoints (Ollama/vLLM/etc.),
+        # native Ollama, and llama.cpp. Cloud-specific vendors are intentionally
+        # not exposed in Resources.
+        self._vendors = [ChatOpenAI, LCOllamaChat, LlamaCppChat]
 
         for extra_vendor in getattr(flowsettings, "KH_LLM_EXTRA_VENDORS", []):
             self._vendors.append(import_dotted_string(extra_vendor, safe=False))

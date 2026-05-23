@@ -33,7 +33,7 @@ class RerankingManagement(BasePage):
     def on_building_ui(self):
         with gr.Tab(label="View"):
             self.rerank_list = gr.DataFrame(
-                headers=["name", "vendor", "default"],
+                headers=["name", "adapter", "default"],
                 interactive=False,
                 column_widths=[30, 40, 30],
             )
@@ -97,7 +97,7 @@ class RerankingManagement(BasePage):
                     with gr.Column():
                         self.edit_spec_desc = gr.Markdown("# Spec description")
 
-        with gr.Tab(label="Add"):
+        with gr.Tab(label="Advanced local YAML"):
             with gr.Row():
                 with gr.Column(scale=2):
                     self.name = gr.Textbox(
@@ -107,16 +107,22 @@ class RerankingManagement(BasePage):
                             "The name will be used to identify the reranking model."
                         ),
                     )
-                    self.rerank_choices = gr.Dropdown(
-                        label="Vendors",
-                        info=(
-                            "Choose the vendor of the Reranking model. Each vendor "
-                            "has different specification."
-                        ),
+                    gr.Markdown(
+                        (
+                            "**Provider:** local TEI reranker "
+                            "(`kotaemon.rerankings.TeiFastReranking`).\n\n"
+                            "Example:\n"
+                            "```yaml\n"
+                            "endpoint_url: http://localhost:8080\n"
+                            "model_name: BAAI/bge-reranker-v2-m3\n"
+                            "is_truncated: true\n"
+                            "```"
+                        )
                     )
                     self.spec = gr.Textbox(
                         label="Specification",
-                        info="Specification of the Embedding model in YAML format.",
+                        info="Specification of the Reranking model in YAML format.",
+                        lines=5,
                     )
                     self.default = gr.Checkbox(
                         label="Set default",
@@ -138,37 +144,16 @@ class RerankingManagement(BasePage):
             inputs=[],
             outputs=[self.rerank_list],
         )
-        self._app.app.load(
-            lambda: gr.update(choices=list(reranking_models_manager.vendors().keys())),
-            outputs=[self.rerank_choices],
-        )
-
-    def on_rerank_vendor_change(self, vendor):
-        vendor = reranking_models_manager.vendors()[vendor]
-
-        required: dict = {}
-        desc = vendor.describe()
-        for key, value in desc["params"].items():
-            if value.get("required", False):
-                required[key] = value.get("default", None)
-
-            return yaml.dump(required), format_description(vendor)
 
     def on_register_events(self):
-        self.rerank_choices.select(
-            self.on_rerank_vendor_change,
-            inputs=[self.rerank_choices],
-            outputs=[self.spec, self.spec_desc],
-        )
         self.btn_new.click(
             self.create_rerank,
-            inputs=[self.name, self.rerank_choices, self.spec, self.default],
+            inputs=[self.name, self.spec, self.default],
             outputs=None,
         ).success(self.list_rerankings, inputs=[], outputs=[self.rerank_list]).success(
-            lambda: ("", None, "", False, self.spec_desc_default),
+            lambda: ("", "", False, self.spec_desc_default),
             outputs=[
                 self.name,
-                self.rerank_choices,
                 self.spec,
                 self.default,
                 self.spec_desc,
@@ -248,15 +233,11 @@ class RerankingManagement(BasePage):
             outputs=[self.connection_logs],
         )
 
-    def create_rerank(self, name, choices, spec, default):
+    def create_rerank(self, name, spec, default):
         try:
             name = name.strip()
-            spec = yaml.load(spec, Loader=YAMLNoDateSafeLoader)
-            spec["__type__"] = (
-                reranking_models_manager.vendors()[choices].__module__
-                + "."
-                + reranking_models_manager.vendors()[choices].__qualname__
-            )
+            spec = yaml.load(spec, Loader=YAMLNoDateSafeLoader) or {}
+            spec["__type__"] = "kotaemon.rerankings.TeiFastReranking"
 
             reranking_models_manager.add(name, spec=spec, default=default)
             gr.Info(f'Reranking model "{name}" created successfully')
@@ -271,7 +252,7 @@ class RerankingManagement(BasePage):
         for item in reranking_models_manager.info().values():
             record = {}
             record["name"] = item["name"]
-            record["vendor"] = item["spec"].get("__type__", "-").split(".")[-1]
+            record["adapter"] = item["spec"].get("__type__", "-").split(".")[-1]
             record["default"] = item["default"]
             items.append(record)
 
@@ -279,7 +260,7 @@ class RerankingManagement(BasePage):
             rerank_list = pd.DataFrame.from_records(items)
         else:
             rerank_list = pd.DataFrame.from_records(
-                [{"name": "-", "vendor": "-", "default": "-"}]
+                [{"name": "-", "adapter": "-", "default": "-"}]
             )
 
         return rerank_list
@@ -314,11 +295,15 @@ class RerankingManagement(BasePage):
 
             info = deepcopy(reranking_models_manager.info()[selected_rerank_name])
             vendor_str = info["spec"].pop("__type__", "-").split(".")[-1]
-            vendor = reranking_models_manager.vendors()[vendor_str]
+            vendor = reranking_models_manager.vendors().get(vendor_str)
 
             edit_name = selected_rerank_name
             edit_spec = yaml.dump(info["spec"])
-            edit_spec_desc = format_description(vendor)
+            edit_spec_desc = (
+                format_description(vendor)
+                if vendor is not None
+                else f"# Spec description\n\n{vendor_str}"
+            )
             edit_default = info["default"]
 
         return (

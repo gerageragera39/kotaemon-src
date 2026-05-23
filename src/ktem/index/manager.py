@@ -101,6 +101,9 @@ class IndexManager:
             config (dict): the config of the index
             index_type (str): the type of the index
         """
+        if not self._is_enabled_index_type(index_type):
+            return None
+
         index_cls = import_dotted_string(index_type, safe=False)
         index = index_cls(app=self._app, id=id, name=name, config=config)
         index.on_start()
@@ -152,8 +155,16 @@ class IndexManager:
 
         # developer-defined custom index types
         for index_str in settings.KH_INDEX_TYPES:
+            if not self._is_enabled_index_type(index_str):
+                continue
             cls: Type[BaseIndex] = import_dotted_string(index_str, safe=False)
             self._index_types[f"{cls.__module__}.{cls.__qualname__}"] = cls
+
+    @staticmethod
+    def _is_enabled_index_type(index_type: str) -> bool:
+        """Keep disabled graph index implementations out of the Resources UI."""
+        disabled_markers = ("GraphRAG", "LightRAG", ".graph.")
+        return not any(marker in index_type for marker in disabled_markers)
 
     def exists(self, id: Optional[int] = None, name: Optional[str] = None) -> bool:
         """Check if the index exists
