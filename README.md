@@ -87,6 +87,9 @@ Start TEI with `BAAI/bge-reranker-v2-m3` on port **8080**:
 docker run -d --gpus all -p 8080:80 \
   ghcr.io/huggingface/text-embeddings-inference:latest \
   --model-id BAAI/bge-reranker-v2-m3
+
+
+docker run -d --gpus all -p 8080:80 ghcr.io/huggingface/text-embeddings-inference:86-1.9 --model-id BAAI/bge-reranker-v2-m3
 ```
 
 On first start the image downloads the model; wait until the service responds before running retrieval in Kotaemon.
